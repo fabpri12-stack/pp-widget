@@ -1028,7 +1028,7 @@ function AvailabilityStep({
               Selected: {event.title}, {formatLongDate(session.date)}, {session.time}. 
             </p>
           
-            )}
+          
           </div>
         </div>
       ) : (
