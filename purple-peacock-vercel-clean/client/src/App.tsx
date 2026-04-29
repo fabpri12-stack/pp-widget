@@ -1025,12 +1025,9 @@ function AvailabilityStep({
           <div>
             <strong>{isInstantConfirmation ? availabilityResult?.message ?? "Availability confirmed." : enquiryMessage}</strong>
             <p>
-              Selected: {event.title}, {formatLongDate(session.date)}, {session.time}. We’ll pass your details through so the team can follow up if instant confirmation is not available.
+              Selected: {event.title}, {formatLongDate(session.date)}, {session.time}. 
             </p>
-            {!!availabilityResult?.suggestedTimes?.length && (
-              <p>
-                Suggested times: {availabilityResult.suggestedTimes.slice(0, 4).map((suggestion) => suggestion.time).join(", ")}
-              </p>
+          
             )}
           </div>
         </div>
