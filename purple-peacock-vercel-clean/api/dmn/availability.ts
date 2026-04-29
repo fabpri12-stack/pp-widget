@@ -24,9 +24,9 @@ function normaliseTime(value: unknown) {
 
 function messageFor(action: string | null, valid: boolean) {
   if (action === "accept") return "Availability confirmed for this slot.";
-  if (action === "enquire") return "This slot is available as an enquiry-led booking.";
-  if (action === "may_enquire") return "This slot is not directly available, but you may submit an enquiry.";
-  if (action === "reject" || !valid) return "This slot is not available for the selected party size.";
+  if (action === "enquire") return "This slot is available as an enquiry only. A member of the sales team will help you complete this booking.";
+  if (action === "may_enquire") return "This slot is not directly available, but you may submit an enquiry. A member of the sales team will help you complete this booking.";
+  if (action === "reject" || !valid) return "This slot is not available for the selected date.";
   return "DesignMyNight returned an availability response for this slot.";
 }
 
