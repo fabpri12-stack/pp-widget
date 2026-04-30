@@ -1,0 +1,40 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 760" role="img" aria-label="Purple Peacock bottomless drunch illustration">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#3b0f5f"/>
+      <stop offset=".42" stop-color="#7d246f"/>
+      <stop offset="1" stop-color="#12031f"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="50%" cy="28%" r="62%">
+      <stop offset="0" stop-color="#ffd980" stop-opacity=".85"/>
+      <stop offset=".5" stop-color="#d94dff" stop-opacity=".36"/>
+      <stop offset="1" stop-color="#12031f" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <rect width="1200" height="760" fill="url(#bg)"/>
+  <rect width="1200" height="760" fill="url(#glow)"/>
+  <g opacity=".23" stroke="#fff6d1" stroke-width="3">
+    <path d="M90 160H1110"/>
+    <path d="M160 230H1040"/>
+    <path d="M250 300H950"/>
+  </g>
+  <g transform="translate(184 96)">
+    <path d="M228 168H384L358 478C354 527 320 560 272 560C224 560 190 527 186 478Z" fill="#0b0611" opacity=".78"/>
+    <path d="M216 206H370L360 326C312 355 267 356 199 326Z" fill="#ffe1a3" opacity=".58"/>
+    <path d="M272 560V625M198 625H346" stroke="#fff2c4" stroke-width="14" stroke-linecap="round"/>
+  </g>
+  <g transform="translate(610 116)">
+    <path d="M222 104H390L354 470C349 522 314 560 263 560C212 560 177 522 172 470Z" fill="#08050d" opacity=".76"/>
+    <path d="M198 178H370L354 340C310 384 251 384 182 340Z" fill="#ff4fb2" opacity=".5"/>
+    <path d="M263 560V625M190 625H336" stroke="#fff2c4" stroke-width="14" stroke-linecap="round"/>
+  </g>
+  <g fill="#fff7d7" opacity=".82">
+    <circle cx="264" cy="170" r="8"/>
+    <circle cx="338" cy="205" r="5"/>
+    <circle cx="835" cy="150" r="7"/>
+    <circle cx="904" cy="206" r="5"/>
+    <circle cx="574" cy="255" r="6"/>
+    <circle cx="652" cy="315" r="4"/>
+  </g>
+  <path d="M0 642C166 607 373 602 600 652C827 602 1034 607 1200 642V760H0Z" fill="#08030d"/>
+</svg>
