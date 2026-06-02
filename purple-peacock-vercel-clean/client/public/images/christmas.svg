@@ -1,0 +1,35 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 760" role="img" aria-label="Purple Peacock Christmas show illustration">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#280c43"/>
+      <stop offset=".5" stop-color="#102b2e"/>
+      <stop offset="1" stop-color="#050207"/>
+    </linearGradient>
+    <radialGradient id="gold" cx="50%" cy="22%" r="54%">
+      <stop offset="0" stop-color="#fff0bc" stop-opacity=".92"/>
+      <stop offset=".42" stop-color="#b677ff" stop-opacity=".35"/>
+      <stop offset="1" stop-color="#000" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <rect width="1200" height="760" fill="url(#bg)"/>
+  <rect width="1200" height="760" fill="url(#gold)"/>
+  <g stroke="#fff3c7" stroke-width="5" stroke-linecap="round" opacity=".7">
+    <path d="M181 199C313 115 471 120 600 235C729 120 887 115 1019 199" fill="none"/>
+    <path d="M290 276C390 213 505 222 600 306C695 222 810 213 910 276" fill="none" opacity=".52"/>
+  </g>
+  <g transform="translate(430 120)">
+    <path d="M170 0L222 116L348 128L253 211L282 336L170 270L58 336L87 211L-8 128L118 116Z" fill="#f6c760" opacity=".86"/>
+    <path d="M170 116C115 204 95 326 108 504H232C245 326 225 204 170 116Z" fill="#09050d" opacity=".88"/>
+    <circle cx="170" cy="210" r="45" fill="#fff4cd"/>
+  </g>
+  <g fill="#fff8dc">
+    <circle cx="178" cy="312" r="5"/>
+    <circle cx="246" cy="380" r="3"/>
+    <circle cx="948" cy="316" r="5"/>
+    <circle cx="1015" cy="405" r="3"/>
+    <circle cx="592" cy="92" r="4"/>
+    <circle cx="760" cy="265" r="4"/>
+    <circle cx="421" cy="278" r="4"/>
+  </g>
+  <path d="M0 638C203 603 400 618 600 662C800 618 997 603 1200 638V760H0Z" fill="#050207"/>
+</svg>
