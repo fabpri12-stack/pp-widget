@@ -1467,7 +1467,7 @@ function AvailabilityStep({
           }}
         >
           <option value={0}>Select guests</option>
-          {Array.from({ length: 18 }, (_, index) => index + 2).map((guestCount) => (
+          {Array.from({ length: 99 }, (_, index) => index + 2).map((guestCount) => (
             <option key={guestCount} value={guestCount}>{guestCount} guests</option>
           ))}
         </select>
