@@ -83,6 +83,7 @@ export const eventSchema = z.object({
   imageUrl: z.string().url().nullable().optional(),
   videoUrl: z.string().url().nullable(),
   welcomeGuideUrl: z.string().nullable().optional(),
+  externalBookingUrl: z.string().nullable().optional(),
   menuUrl: z.string().nullable(),
   menuLinks: z.array(menuLinkSchema).optional(),
   howItWorksUrl: z.string().nullable(),

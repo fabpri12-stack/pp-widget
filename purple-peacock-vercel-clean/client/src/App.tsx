@@ -10,6 +10,7 @@ import {
   CircleAlert,
   Clock,
   Download,
+  ExternalLink,
   Film,
   GlassWater,
   Loader2,
@@ -82,6 +83,13 @@ const imageMap: Record<CalendarEvent["imageTone"], string> = {
 
 function eventImage(event: CalendarEvent) {
   return event.imageUrl || imageMap[event.imageTone];
+}
+
+function openExternalBooking(url: string) {
+  const opened = window.open(url, "_blank", "noopener,noreferrer");
+  if (!opened) {
+    window.location.href = url;
+  }
 }
 
 const monthLabels = ["May 2026", "November 2026"];
@@ -1128,6 +1136,8 @@ function BookingJourney({
   onVideo: () => void;
 }) {
   const available = session.status !== "sold_out";
+  const hasExternalBooking = Boolean(event.externalBookingUrl);
+  const visibleBookingStep = hasExternalBooking ? "event" : bookingStep;
   const depositTotal = event.depositPence * customer.guests;
   const bookingRef = `PP-${session.date.replaceAll("-", "")}-${session.time.replace(":", "")}`;
   const selectedTicketChoice = event.secondaryTicketEnabled ? customer.ticketOption : "standard";
@@ -1196,9 +1206,9 @@ function BookingJourney({
           </Button>
         </div>
 
-        <StepTabs bookingStep={bookingStep} setBookingStep={setBookingStep} available={available} />
+        {!hasExternalBooking && <StepTabs bookingStep={bookingStep} setBookingStep={setBookingStep} available={available} />}
 
-        {bookingStep === "event" && (
+        {visibleBookingStep === "event" && (
           <EventStep
             event={event}
             sessions={sessions}
@@ -1207,6 +1217,10 @@ function BookingJourney({
             selectedSession={session}
             onSelectSession={onSelectSession}
             onContinue={() => {
+              if (event.externalBookingUrl) {
+                openExternalBooking(event.externalBookingUrl);
+                return;
+              }
               setAvailabilityState("idle");
               setAvailabilityResult(null);
               setBookingStep("availability");
@@ -1214,7 +1228,7 @@ function BookingJourney({
           />
         )}
 
-        {bookingStep === "availability" && (
+        {!hasExternalBooking && bookingStep === "availability" && (
           <AvailabilityStep
             customer={customer}
             setCustomer={setCustomer}
@@ -1229,7 +1243,7 @@ function BookingJourney({
           />
         )}
 
-        {bookingStep === "details" && (
+        {!hasExternalBooking && bookingStep === "details" && (
           <DetailsStep
             customer={customer}
             setCustomer={setCustomer}
@@ -1238,7 +1252,7 @@ function BookingJourney({
           />
         )}
 
-        {bookingStep === "transfer" && (
+        {!hasExternalBooking && bookingStep === "transfer" && (
           <TransferStep
             event={event}
             session={session}
@@ -1255,7 +1269,7 @@ function BookingJourney({
           />
         )}
 
-        {bookingStep === "confirmation" && (
+        {!hasExternalBooking && bookingStep === "confirmation" && (
           <ConfirmationStep
             event={event}
             session={session}
@@ -1336,6 +1350,8 @@ function EventStep({
   onSelectSession: (session: SessionWithEvent) => void;
   onContinue: () => void;
 }) {
+  const usesExternalBooking = Boolean(event.externalBookingUrl);
+
   return (
     <div className="booking-step">
       <div className="date-change-row">
@@ -1358,13 +1374,22 @@ function EventStep({
           </button>
         ))}
       </div>
+      {usesExternalBooking && (
+        <div className="availability-result pending" data-testid="status-external-booking">
+          <ExternalLink size={20} />
+          <div>
+            <strong>This event is booked through an external event page.</strong>
+            <p>Choose your date and time, then continue directly to the external booking link.</p>
+          </div>
+        </div>
+      )}
       <Button
-        data-testid="button-check-availability"
+        data-testid={usesExternalBooking ? "button-external-booking" : "button-check-availability"}
         className="book-button wide"
         onClick={onContinue}
         disabled={selectedSession.status === "sold_out"}
       >
-        Check availability
+        {usesExternalBooking ? "Book this event" : "Check availability"}
       </Button>
       {eventSessions.length > sessions.length && (
         <div className="other-date-panel">

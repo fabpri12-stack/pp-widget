@@ -23,6 +23,13 @@ type EventSeriesRow = {
   welcome_pdf_url?: string | null;
   what_to_expect_pdf_url?: string | null;
   guide_url?: string | null;
+  external_booking_url?: string | null;
+  alternative_external_booking_url?: string | null;
+  external_event_url?: string | null;
+  external_url?: string | null;
+  external_ticket_url?: string | null;
+  alternative_booking_url?: string | null;
+  booking_url?: string | null;
   menu_url?: string | null;
   drinks_menu_url?: string | null;
   drink_menu_url?: string | null;
@@ -80,6 +87,13 @@ type BookingTypeRow = {
   name?: string | null;
   category?: string | null;
   default_price_display?: string | null;
+  external_booking_url?: string | null;
+  alternative_external_booking_url?: string | null;
+  external_event_url?: string | null;
+  external_url?: string | null;
+  external_ticket_url?: string | null;
+  alternative_booking_url?: string | null;
+  booking_url?: string | null;
   active?: boolean | null;
 };
 
@@ -174,6 +188,25 @@ function cleanUrl(value?: string | null) {
   const url = String(value ?? "").trim();
   if (!url || url === "#") return null;
   return url;
+}
+
+function externalBookingUrl(event: EventSeriesRow, bookingType?: BookingTypeRow) {
+  return cleanUrl(
+    event.external_booking_url ??
+      event.alternative_external_booking_url ??
+      event.external_event_url ??
+      event.external_url ??
+      event.external_ticket_url ??
+      event.alternative_booking_url ??
+      event.booking_url ??
+      bookingType?.external_booking_url ??
+      bookingType?.alternative_external_booking_url ??
+      bookingType?.external_event_url ??
+      bookingType?.external_url ??
+      bookingType?.external_ticket_url ??
+      bookingType?.alternative_booking_url ??
+      bookingType?.booking_url,
+  );
 }
 
 function toBoolean(value: unknown) {
@@ -563,9 +596,11 @@ function mapEvents(
   events: EventSeriesRow[],
   sessionsByEvent: Record<string, EventSession[]>,
   templates: TemplateRow[] = [],
+  bookingTypes: BookingTypeRow[] = [],
 ): CalendarEvent[] {
   return events
     .map((event) => {
+      const bookingType = bookingTypes.find((type) => type.id === event.dmn_booking_type_id || type.dmn_booking_type_id === event.dmn_booking_type_id);
       const sessions = (sessionsByEvent[event.id] ?? []).sort((a, b) => `${a.date}${a.time}`.localeCompare(`${b.date}${b.time}`));
       const runStart = sessions[0]?.date ?? new Date().toISOString().slice(0, 10);
       const runEnd = sessions[sessions.length - 1]?.date ?? runStart;
@@ -589,6 +624,7 @@ function mapEvents(
         imageUrl: event.image_url ?? null,
         videoUrl: event.video_url ?? null,
         welcomeGuideUrl: cleanUrl(event.welcome_guide_url ?? event.welcome_pdf_url ?? event.what_to_expect_pdf_url ?? event.guide_url),
+        externalBookingUrl: externalBookingUrl(event, bookingType),
         menuUrl: event.menu_url ?? null,
         menuLinks: buildMenuLinks(event, menuTemplate),
         howItWorksUrl: event.how_it_works_url ?? null,
@@ -692,7 +728,7 @@ export async function loadCalendarData(): Promise<CalendarResponse> {
     // If the RPC signature differs during setup, schedule data still provides a working first pass.
   }
 
-  const events = mapEvents(eventRows as EventSeriesRow[], sessionsByEvent, (templateRows ?? []) as TemplateRow[]);
+  const events = mapEvents(eventRows as EventSeriesRow[], sessionsByEvent, (templateRows ?? []) as TemplateRow[], (bookingTypeRows ?? []) as BookingTypeRow[]);
   if (!events.length) {
     return {
       events: [],
