@@ -1830,7 +1830,7 @@ function ConfirmationStep({
           <span>{isFailed ? (bookingReturn?.status === "cancelled" ? "DesignMyNight reports this booking as cancelled or unavailable." : failureMessage) : isEnquiry ? "Sales team follow-up" : heading}</span>
         </p>
       </div>
-      {isPaymentReturn && <p><strong>Payment</strong><span>{bookingReturn?.verified === true && bookingReturn?.depositVerified === true && isConfirmed ? "Deposit received by DesignMyNight. See your receipt for the amount." : "Payment not verified. Please check your DesignMyNight receipt."}</span></p>}
+      {isPaymentReturn && <p><strong>Payment: </strong><span>{bookingReturn?.verified === true && bookingReturn?.depositVerified === true && isConfirmed ? "Deposit received by DesignMyNight. See your receipt for the amount." : "Payment not verified. Please check your DesignMyNight receipt."}</span></p>}
       {isFailed ? (
         <div className="failure-panel">
           <CircleAlert size={18} />
