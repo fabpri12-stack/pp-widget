@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Switch, Route, Router } from "wouter";
 import { useHashLocation } from "wouter/use-hash-location";
 import { QueryClientProvider, useQuery } from "@tanstack/react-query";
@@ -44,7 +44,7 @@ import type { CalendarEvent, CalendarResponse, EventSession } from "@shared/sche
 type SessionWithEvent = EventSession & { event: CalendarEvent };
 type ModalMode = "menu" | "how" | "faq" | "guide" | "video" | null;
 type ViewMode = "calendar" | "cards";
-type BookingStep = "event" | "availability" | "details" | "transfer" | "confirmation";
+type BookingStep = "event" | "availability" | "details" | "confirmation";
 type AvailabilityState = "idle" | "checking" | "available" | "enquiry" | "error";
 type PaymentFlowState = "idle" | "redirecting" | "awaiting" | "submitting-enquiry";
 type TicketOptionChoice = "standard" | "premium";
@@ -70,6 +70,8 @@ type BookingReturn = {
   success?: boolean;
   errorMessage?: string;
   technicalError?: boolean;
+  verified?: boolean;
+  depositVerified?: boolean;
   firstName?: string;
   lastName?: string;
   email?: string;
@@ -159,6 +161,7 @@ function buildDmnNotes(event: CalendarEvent, customer: typeof defaultCustomer) {
 function buildDmnHandoffUrl(session: EventSession, event: CalendarEvent, customer: typeof defaultCustomer) {
   const durationMinutes = getDmnDurationMinutes(session);
   const returnUrl = new URL("/api/dmn/return", window.location.origin);
+  returnUrl.searchParams.set("return_id", session.id);
 
   const params = new URLSearchParams({
     venue_group: dmnBookingConfig.venueGroupId,
@@ -181,7 +184,7 @@ function buildDmnHandoffUrl(session: EventSession, event: CalendarEvent, custome
   return `https://bookings.designmynight.com/book?${params.toString()}`;
 }
 
-function buildPaymentReturnPayload(params: URLSearchParams, session?: SessionWithEvent | null): BookingReturn {
+function buildPaymentReturnPayload(params: URLSearchParams, session?: SessionWithEvent | null): NonNullable<BookingReturn> {
   const reference =
     params.get("reference") ||
     params.get("booking_ref") ||
@@ -194,9 +197,10 @@ function buildPaymentReturnPayload(params: URLSearchParams, session?: SessionWit
   return {
     reference,
     dmnReference: reference,
-    status: params.get("status") || "complete",
+    status: "unverified",
     flow: "payment",
-    success: true,
+    verified: false,
+    depositVerified: false,
     firstName: params.get("first_name") || undefined,
     lastName: params.get("last_name") || undefined,
     email: params.get("email") || undefined,
@@ -226,7 +230,6 @@ function createPendingPaymentMessage(session: EventSession, customer: typeof def
   params.set("first_name", customer.firstName);
   params.set("last_name", customer.lastName);
   params.set("email", customer.email);
-  params.set("status", "complete");
   params.set("reference", "Returned from DesignMyNight");
   return createPaymentReturnMessage(params, session as SessionWithEvent);
 }
@@ -615,7 +618,10 @@ function EventsCalendar() {
     setBookingStep("event");
   }, [bookingStep, eventFilter, filteredSessions, paymentFlowState, selectedSessionId]);
 
-  function applyPaymentReturnMessage(message: PaymentReturnMessage) {
+  const returnVerificationId = useRef(0);
+
+  async function applyPaymentReturnMessage(message: PaymentReturnMessage) {
+    const verificationId = ++returnVerificationId.current;
     const returnedSession = findReturnSession(sessions, message);
     const resolvedMessage: PaymentReturnMessage = returnedSession
       ? {
@@ -647,11 +653,49 @@ function EventsCalendar() {
       }));
     }
 
-    setBookingReturn(resolvedMessage.bookingReturn);
+    const pendingReturn: NonNullable<BookingReturn> = {
+      ...resolvedMessage.bookingReturn,
+      reference: resolvedMessage.bookingReturn?.reference || "No booking reference received",
+      flow: "payment", status: "checking", success: undefined,
+      verified: false, depositVerified: false,
+    };
+    setBookingReturn(pendingReturn);
     setAvailabilityState("available");
     setPaymentFlowState("idle");
     setPendingPaymentSnapshot(null);
     setBookingStep("confirmation");
+    if (isMobile) setShowDetailModal(true);
+    let result = { verified: false, status: "unverified", depositVerified: false };
+    try {
+      const response = await fetch("/api/dmn/verify", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          reference: pendingReturn.dmnReference || pendingReturn.reference,
+          email: pendingReturn.email,
+          date: resolvedMessage.date,
+          time: resolvedMessage.time,
+          guests: resolvedMessage.guests,
+          type: returnedSession?.dmnBookingTypeId,
+        }),
+        signal: AbortSignal.timeout(20000),
+      });
+      if (response.ok) {
+        const payload = await response.json();
+        if (payload && typeof payload === "object") result = payload;
+      }
+    } catch {
+      // A timeout, missing reference or API error must never look like payment success.
+    }
+    if (verificationId !== returnVerificationId.current) return;
+    const verified = result.verified === true && ["confirmed", "enquiry", "cancelled"].includes(result.status);
+    setBookingReturn({
+      ...pendingReturn,
+      status: verified ? result.status : "unverified",
+      verified,
+      depositVerified: verified && result.status === "confirmed" && result.depositVerified === true,
+      success: verified ? result.status !== "cancelled" : undefined,
+    });
   }
 
   useEffect(() => {
@@ -660,7 +704,7 @@ function EventsCalendar() {
     const returnId = params.get("return_id");
     let storedPending: PaymentReturnMessage | null = null;
 
-    if (returnId) {
+    {
       try {
         const rawPending =
           window.sessionStorage.getItem(pendingPaymentKey(returnId)) ||
@@ -668,6 +712,7 @@ function EventsCalendar() {
           window.sessionStorage.getItem(PAYMENT_PENDING_STORAGE_KEY) ||
           window.localStorage.getItem(PAYMENT_PENDING_STORAGE_KEY);
         storedPending = rawPending ? (JSON.parse(rawPending) as PaymentReturnMessage) : null;
+        if (storedPending && (!storedPending.createdAt || Date.now() - storedPending.createdAt > PAYMENT_PENDING_TTL_MS || (returnId && storedPending.sessionId !== returnId))) storedPending = null;
       } catch {
         storedPending = null;
       }
@@ -682,7 +727,7 @@ function EventsCalendar() {
     const returnMessage = storedPending
       ? {
           ...storedPending,
-          bookingReturn: buildPaymentReturnPayload(params, returnedSession),
+          bookingReturn: { ...buildPaymentReturnPayload(params, returnedSession), email: params.get("email") || storedPending.bookingReturn?.email },
         }
       : createPaymentReturnMessage(params, returnedSession);
     try {
@@ -692,7 +737,7 @@ function EventsCalendar() {
         window.localStorage.removeItem(pendingPaymentKey(returnId));
       }
     } catch {
-      // Storage can be blocked in some embedded contexts. The returned tab still confirms itself.
+      // Storage can be blocked in some embedded contexts. The returned tab still checks its booking status.
     }
     applyPaymentReturnMessage(returnMessage);
 
@@ -723,7 +768,7 @@ function EventsCalendar() {
       try {
         applyReturnMessage(window.localStorage.getItem(PAYMENT_RETURN_STORAGE_KEY));
       } catch {
-        // Storage can be blocked in iframes; the returned tab will still display confirmation.
+        // Storage can be blocked in iframes; the returned tab will still check its booking status.
       }
     }
 
@@ -1206,7 +1251,7 @@ function BookingJourney({
           </Button>
         </div>
 
-        {!hasExternalBooking && <StepTabs bookingStep={bookingStep} setBookingStep={setBookingStep} available={available} />}
+        {!hasExternalBooking && <StepTabs busy={paymentFlowState !== "idle"} bookingStep={bookingStep} setBookingStep={setBookingStep} available={available} />}
 
         {visibleBookingStep === "event" && (
           <EventStep
@@ -1244,16 +1289,8 @@ function BookingJourney({
         )}
 
         {!hasExternalBooking && bookingStep === "details" && (
-          <DetailsStep
-            customer={customer}
+          <BookingDetailsStep
             setCustomer={setCustomer}
-            onBack={() => setBookingStep("availability")}
-            onContinue={() => setBookingStep("transfer")}
-          />
-        )}
-
-        {!hasExternalBooking && bookingStep === "transfer" && (
-          <TransferStep
             event={event}
             session={session}
             customer={customer}
@@ -1264,7 +1301,7 @@ function BookingJourney({
             setPaymentFlowState={setPaymentFlowState}
             setPendingPaymentSnapshot={setPendingPaymentSnapshot}
             setBookingReturn={setBookingReturn}
-            onBack={() => setBookingStep("details")}
+            onBack={() => setBookingStep("availability")}
             onComplete={() => setBookingStep("confirmation")}
           />
         )}
@@ -1302,7 +1339,9 @@ function StepTabs({
   bookingStep,
   setBookingStep,
   available,
+  busy,
 }: {
+  busy: boolean;
   bookingStep: BookingStep;
   setBookingStep: (step: BookingStep) => void;
   available: boolean;
@@ -1311,7 +1350,6 @@ function StepTabs({
     { id: "event", label: "Show" },
     { id: "availability", label: "Availability" },
     { id: "details", label: "Details" },
-    { id: "transfer", label: "Payment" },
     { id: "confirmation", label: "Welcome" },
   ];
   const currentIndex = steps.findIndex((step) => step.id === bookingStep);
@@ -1324,7 +1362,7 @@ function StepTabs({
           data-testid={`button-step-${step.id}`}
           className={bookingStep === step.id ? "active" : ""}
           onClick={() => available && index <= currentIndex && setBookingStep(step.id)}
-          disabled={!available || index > currentIndex}
+          disabled={busy || !available || index > currentIndex}
         >
           <span>{index + 1}</span>{step.label}
         </button>
@@ -1542,16 +1580,20 @@ function DetailsStep({
   setCustomer,
   onBack,
   onContinue,
+  busy,
+  actionLabel,
 }: {
   customer: typeof defaultCustomer;
   setCustomer: (customer: typeof defaultCustomer) => void;
   onBack: () => void;
   onContinue: () => void;
+  busy: boolean;
+  actionLabel: string;
 }) {
   const canContinue = customer.firstName && customer.lastName && customer.email && customer.phone;
 
   return (
-    <div className="booking-step">
+    <fieldset className="booking-step details-fields" disabled={busy} aria-busy={busy}>
       <div className="form-grid">
         <label className="form-field">
           <span>First name</span>
@@ -1576,13 +1618,14 @@ function DetailsStep({
       </label>
       <div className="button-pair">
         <Button data-testid="button-back-availability" variant="outline" className="glass-action" onClick={onBack}>Back</Button>
-        <Button data-testid="button-go-payment" className="book-button" disabled={!canContinue} onClick={onContinue}>Go to secure payment</Button>
+        <Button data-testid="button-go-payment" className="book-button" disabled={!canContinue || busy} onClick={onContinue}>{busy && <Loader2 className="animate-spin" size={18} />}<span role="status">{actionLabel}</span></Button>
       </div>
-    </div>
+    </fieldset>
   );
 }
 
-function TransferStep({
+function BookingDetailsStep({
+  setCustomer,
   event,
   session,
   customer,
@@ -1596,6 +1639,7 @@ function TransferStep({
   onBack,
   onComplete,
 }: {
+  setCustomer: (customer: typeof defaultCustomer) => void;
   event: CalendarEvent;
   session: SessionWithEvent;
   customer: typeof defaultCustomer;
@@ -1609,6 +1653,7 @@ function TransferStep({
   onBack: () => void;
   onComplete: () => void;
 }) {
+  const submitting = useRef(false);
   const paymentUrl = buildDmnHandoffUrl(session, event, customer);
   const isEnquiryFlow = availabilityState !== "available";
   const needsHostedPayment = requiresHostedDmnPayment(availabilityState, availabilityResult, depositTotal);
@@ -1683,83 +1728,48 @@ function TransferStep({
     }
   }
 
+  function continueBooking() {
+    if (submitting.current || isBusy) return;
+    submitting.current = true;
+    if (isEnquiryFlow || isDirectConfirmFlow) {
+      void submitBookingRequest(isEnquiryFlow ? "enquiry" : "direct").finally(() => {
+        submitting.current = false;
+      });
+      return;
+    }
+    setPaymentFlowState("redirecting");
+    const pendingMessage = {
+      ...createPendingPaymentMessage(session, customer),
+      createdAt: Date.now(),
+    };
+    setPendingPaymentSnapshot(pendingMessage);
+    try {
+      window.sessionStorage.setItem(PAYMENT_PENDING_STORAGE_KEY, JSON.stringify(pendingMessage));
+      window.localStorage.setItem(PAYMENT_PENDING_STORAGE_KEY, JSON.stringify(pendingMessage));
+      window.sessionStorage.setItem(pendingPaymentKey(session.id), JSON.stringify(pendingMessage));
+      window.localStorage.setItem(pendingPaymentKey(session.id), JSON.stringify(pendingMessage));
+    } catch {
+      // Storage can be restricted in embedded contexts; the explicit return URL still carries details where available.
+    }
+    window.location.assign(paymentUrl);
+  }
+
+  const actionLabel = paymentFlowState === "submitting-enquiry"
+    ? isDirectConfirmFlow ? "Confirming booking..." : "Submitting enquiry..."
+    : paymentFlowState === "redirecting" ? "Opening secure payment..."
+    : paymentFlowState === "awaiting" ? "Awaiting payment..."
+    : isEnquiryFlow ? "Submit enquiry"
+    : isDirectConfirmFlow ? "Confirm booking" : "Go to secure payment";
+
   return (
-    <div className="booking-step transfer-screen" data-testid="screen-dmn-transfer">
-      <div className="transfer-orb">
-        <Loader2 className="animate-spin" size={34} />
-      </div>
-      <h3>
-        {paymentFlowState === "awaiting"
-          ? "Awaiting payment confirmation..."
-          : isEnquiryFlow
-            ? "Submit your enquiry"
-            : isDirectConfirmFlow
-              ? "Confirm your booking"
-              : "Transfer to secure payment"}
-      </h3>
-      <p data-testid="status-transfer">
-        {paymentFlowState === "awaiting"
-            ? "Please complete the DesignMyNight payment window. Keep this page open and it will confirm once you return."
-          : isEnquiryFlow
-            ? "This booking will be sent as an enquiry and our sales team will contact you regarding availability."
-            : isDirectConfirmFlow
-              ? `${customer.firstName || "Guest"}, your booking details are ready. Confirm below and we’ll add the booking to DesignMyNight.`
-              : `${customer.firstName || "Guest"}, your booking details are prepared. Continue to DesignMyNight to complete the secure payment or pre-order step.`}
-      </p>
-      <div className="payment-summary">
-        <span>{event.title}</span>
-        <strong>{formatLongDate(session.date)} · {session.time}</strong>
-        <span>
-          {customer.guests} guests · {getSelectedTicketOption(event, customer.ticketOption).label} ticket
-          {needsHostedPayment ? ` · Deposit ${formatMoney(depositTotal)}` : " · No online payment required"}
-        </span>
-      </div>
-      <div className="button-pair">
-        <Button data-testid="button-back-details" variant="outline" className="glass-action" onClick={onBack} disabled={isBusy}>Back</Button>
-        <Button
-          data-testid="button-open-dmn-payment"
-          className="book-button"
-          disabled={isBusy}
-          onClick={() => {
-            if (isEnquiryFlow) {
-              void submitBookingRequest("enquiry");
-              return;
-            }
-            if (isDirectConfirmFlow) {
-              void submitBookingRequest("direct");
-              return;
-            }
-            setPaymentFlowState("redirecting");
-            const pendingMessage = {
-              ...createPendingPaymentMessage(session, customer),
-              createdAt: Date.now(),
-            };
-            setPendingPaymentSnapshot(pendingMessage);
-            try {
-              window.sessionStorage.setItem(PAYMENT_PENDING_STORAGE_KEY, JSON.stringify(pendingMessage));
-              window.localStorage.setItem(PAYMENT_PENDING_STORAGE_KEY, JSON.stringify(pendingMessage));
-              window.sessionStorage.setItem(pendingPaymentKey(session.id), JSON.stringify(pendingMessage));
-              window.localStorage.setItem(pendingPaymentKey(session.id), JSON.stringify(pendingMessage));
-            } catch {
-              // Storage can be restricted in embedded contexts; the explicit return URL still carries details where available.
-            }
-            window.location.assign(paymentUrl);
-          }}
-        >
-          {paymentFlowState === "submitting-enquiry"
-            ? isDirectConfirmFlow
-              ? "Confirming booking..."
-              : "Submitting enquiry..."
-            : paymentFlowState === "awaiting"
-              ? "Awaiting payment..."
-              : isEnquiryFlow
-                ? "Submit enquiry"
-                : isDirectConfirmFlow
-                  ? "Confirm booking"
-                  : "Continue to secure payment"}
-        </Button>
-      </div>
-    </div>
+    <DetailsStep
+      customer={customer}
+      setCustomer={setCustomer}
+      onBack={onBack}
+      onContinue={continueBooking}
+      busy={isBusy}
+      actionLabel={actionLabel}
+    />
   );
 }
 
@@ -1791,32 +1801,36 @@ function ConfirmationStep({
   onNewBooking: () => void;
 }) {
   const reference = bookingReturn?.dmnReference || bookingReturn?.reference || bookingRef;
-  const isFailed = bookingReturn?.success === false || bookingReturn?.status === "failed";
-  const isEnquiry = bookingReturn?.flow === "enquiry" || availabilityState !== "available" || bookingReturn?.status === "enquiry";
-  const isDirectBooking = bookingReturn?.flow === "direct";
+  const isPaymentReturn = bookingReturn?.flow === "payment";
+  const isChecking = isPaymentReturn && bookingReturn?.status === "checking";
+  const isUnverified = isPaymentReturn && (bookingReturn?.verified !== true || isChecking);
+  const isFailed = !isUnverified && (bookingReturn?.success === false || ["failed", "cancelled", "rejected", "deleted", "lost"].includes(bookingReturn?.status || ""));
+  const isEnquiry = !isUnverified && (bookingReturn?.flow === "enquiry" || availabilityState !== "available" || ["enquiry", "in_progress", "new"].includes(bookingReturn?.status || ""));
+  const isConfirmed = !isUnverified && !isFailed && !isEnquiry && ["confirmed", "complete"].includes(bookingReturn?.status || "");
+  const heading = isChecking ? "Checking booking status..." : isUnverified ? "Booking not yet verified" : isFailed ? "Booking not completed" : isEnquiry ? "Enquiry received" : isConfirmed ? "Booking confirmed" : "Booking request received";
   const failureMessage =
     bookingReturn?.errorMessage ||
     "We were unable to make this enquiry. Please try again. If the problem persists, contact info@purplepeacockncl.co.uk.";
 
   return (
     <div className="booking-step confirmation-screen" data-testid="section-confirmation">
-      <div className={`confirmed-icon ${isFailed ? "failed" : ""}`}>{isFailed ? <CircleAlert size={24} /> : <Check size={24} />}</div>
-      <p className="eyebrow">{isFailed ? "Unable to complete booking" : isEnquiry ? "Enquiry received" : isDirectBooking ? "Booking confirmed" : "Returned from DesignMyNight"}</p>
-      <h3>
-        {isFailed
-          ? "Unable to complete booking"
-          : `${isEnquiry ? "Enquiry received" : "Booking received"}, ${bookingReturn?.firstName || customer.firstName || "guest"}`}
-      </h3>
+      <div className={`confirmed-icon ${isFailed || isUnverified ? "failed" : ""}`}>
+        {isChecking ? <Loader2 className="animate-spin" size={24} /> : isFailed || isUnverified ? <CircleAlert size={24} /> : <Check size={24} />}
+      </div>
+      <p className="eyebrow">Booking status</p>
+      <h3 role="status">{heading}</h3>
+      {isUnverified && <p>We have not confirmed your booking or payment. Check your DesignMyNight confirmation email before trying again, or contact <a href="mailto:info@purplepeacockncl.co.uk">info@purplepeacockncl.co.uk</a>.</p>}
       <div className="booking-receipt">
         <p><strong>Reference</strong><span>{reference}</span></p>
         <p><strong>Show</strong><span>{event.title}</span></p>
         <p><strong>Date</strong><span>{formatLongDate(session.date)} at {session.time}</span></p>
         <p><strong>Guests</strong><span>{customer.guests}</span></p>
         <p>
-          <strong>{isFailed ? "Reason" : isEnquiry ? "Status" : "Deposit paid"}</strong>
-          <span>{isFailed ? failureMessage : isEnquiry ? "Sales team follow-up" : depositTotal > 0 ? formatMoney(depositTotal) : "No online payment required"}</span>
+          <strong>{isFailed ? "Reason" : "Status"}</strong>
+          <span>{isFailed ? (bookingReturn?.status === "cancelled" ? "DesignMyNight reports this booking as cancelled or unavailable." : failureMessage) : isEnquiry ? "Sales team follow-up" : heading}</span>
         </p>
       </div>
+      {isPaymentReturn && <p><strong>Payment</strong><span>{bookingReturn?.verified === true && bookingReturn?.depositVerified === true && isConfirmed ? "Deposit received by DesignMyNight. See your receipt for the amount." : "Payment not verified. Please check your DesignMyNight receipt."}</span></p>}
       {isFailed ? (
         <div className="failure-panel">
           <CircleAlert size={18} />
@@ -1834,7 +1848,7 @@ function ConfirmationStep({
       )}
       <div className="button-pair">
         <Button variant="outline" className="glass-action" onClick={onNewBooking}>New booking</Button>
-        <Button className="book-button" data-testid="button-download-welcome" disabled={isFailed || !event.welcomeGuideUrl} onClick={onGuide}>
+        <Button className="book-button" data-testid="button-download-welcome" disabled={isFailed || isUnverified || !event.welcomeGuideUrl} onClick={onGuide}>
           <Download size={16} /> Welcome guide
         </Button>
       </div>

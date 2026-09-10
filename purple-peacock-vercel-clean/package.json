@@ -8,6 +8,7 @@
     "build": "vite build",
     "start": "vite preview --host 0.0.0.0",
     "check": "tsc",
+    "test": "node --import tsx --test tests/*.test.ts",
     "db:push": "drizzle-kit push"
   },
   "dependencies": {

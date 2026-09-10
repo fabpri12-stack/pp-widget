@@ -13,6 +13,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   const params = new URLSearchParams();
 
   params.set("booking_return", "1");
+  const returnId = firstString(req.query?.return_id);
+  if (returnId) params.set("return_id", returnId);
 
   const reference = firstString(
     payload.reference,
