@@ -388,6 +388,21 @@ function EmptyCalendarState() {
   );
 }
 
+// When the booking panel isn't fully in view (stacked tablet/iframe layout),
+// bring it into view after an event is picked so the click has a visible result.
+function scrollJourneyIntoView() {
+  window.setTimeout(() => {
+    const panel = document.querySelector<HTMLElement>(".desktop-journey .journey-panel");
+    if (!panel) return;
+    const rect = panel.getBoundingClientRect();
+    const viewportHeight = window.innerHeight || document.documentElement.clientHeight;
+    const alreadyInView = rect.top >= 0 && rect.top < viewportHeight * 0.35;
+    if (alreadyInView) return;
+    const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    panel.scrollIntoView({ behavior: reduceMotion ? "auto" : "smooth", block: "start" });
+  }, 60);
+}
+
 function useIsMobile() {
   const [isMobile, setIsMobile] = useState(false);
 
@@ -819,6 +834,8 @@ function EventsCalendar() {
     setBookingStep("event");
     if (isMobile && openDetail) {
       setShowDetailModal(true);
+    } else if (openDetail) {
+      scrollJourneyIntoView();
     }
   }
 

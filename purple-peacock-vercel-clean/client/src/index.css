@@ -2023,3 +2023,78 @@
   margin-inline: 0;
   min-width: 0;
 }
+
+/* ------------------------------------------------------------------
+   Compact title bar (replaces the tall standalone-page hero).
+   Keeps the calendar in view inside iframes and on smaller screens.
+------------------------------------------------------------------- */
+.hero-copy.compact-hero {
+  min-height: 0;
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 0.75rem 1.5rem;
+  padding: 1rem 1.5rem;
+}
+
+.compact-hero > .space-y-4 > :not([hidden]) ~ :not([hidden]) {
+  margin-top: 0.3rem;
+}
+
+.compact-hero h1 {
+  max-width: none;
+  font-size: clamp(1.6rem, 2.6vw, 2.4rem);
+  line-height: 1.05;
+}
+
+.hero-copy.compact-hero p {
+  max-width: 38rem;
+  font-size: 0.92rem;
+  line-height: 1.4;
+  opacity: 0.82;
+}
+
+.compact-hero .hero-points {
+  gap: 0.45rem;
+}
+
+.compact-hero .hero-points span {
+  padding: 0.38rem 0.65rem;
+  font-size: 0.78rem;
+}
+
+.journey-panel {
+  scroll-margin-top: 0.75rem;
+}
+
+@media (max-width: 1180px) {
+  .primary-calendar {
+    min-height: auto;
+  }
+}
+
+@media (max-width: 900px) {
+  .compact-hero .hero-points {
+    display: none;
+  }
+}
+
+@media (max-width: 760px) {
+  .journey-hero {
+    display: grid;
+  }
+
+  .hero-copy.compact-hero {
+    padding: 0.7rem 1rem;
+    border-radius: 1.1rem;
+  }
+
+  .compact-hero h1 {
+    font-size: 1.45rem;
+  }
+
+  .hero-copy.compact-hero p {
+    display: none;
+  }
+}
