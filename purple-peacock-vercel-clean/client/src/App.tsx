@@ -681,7 +681,7 @@ function EventsCalendar() {
     setPendingPaymentSnapshot(null);
     setBookingStep("confirmation");
     if (isMobile) setShowDetailModal(true);
-    let result = { verified: false, status: "unverified", depositVerified: false };
+    let result: { verified: boolean; status: string; depositVerified: boolean; reference?: string } = { verified: false, status: "unverified", depositVerified: false };
     try {
       const response = await fetch("/api/dmn/verify", {
         method: "POST",
@@ -705,7 +705,8 @@ function EventsCalendar() {
     }
     if (verificationId !== returnVerificationId.current) return;
     const verified = result.verified === true && ["confirmed", "enquiry", "cancelled"].includes(result.status);
-    const verifiedRef = pendingReturn.dmnReference || pendingReturn.reference;
+    const confirmedRef = verified && typeof result.reference === "string" && /^\d{1,20}$/.test(result.reference) ? result.reference : "";
+    const verifiedRef = confirmedRef || pendingReturn.dmnReference || pendingReturn.reference;
     if (verified && result.status === "confirmed" && returnedSession) {
       const basket = pixel.readCheckout(returnedSession.id) ?? pixel.basketParams(returnedSession.event, returnedSession, resolvedMessage.guests, "standard");
       pixel.setUserData({ email: pendingReturn.email, firstName: pendingReturn.firstName, lastName: pendingReturn.lastName });
@@ -715,6 +716,7 @@ function EventsCalendar() {
     }
     setBookingReturn({
       ...pendingReturn,
+      ...(confirmedRef ? { reference: confirmedRef, dmnReference: confirmedRef } : {}),
       status: verified ? result.status : "unverified",
       verified,
       depositVerified: verified && result.status === "confirmed" && result.depositVerified === true,

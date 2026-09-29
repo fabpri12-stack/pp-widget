@@ -9,7 +9,16 @@ function firstString(...values: unknown[]) {
 }
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
-  const payload = req.method === "POST" ? req.body ?? {} : req.query ?? {};
+  const raw: Record<string, any> = req.method === "POST" ? req.body ?? {} : req.query ?? {};
+  // DMN's POST return sends the whole booking as a JSON string in a single `booking` field.
+  let nested: Record<string, any> = {};
+  const bookingField = raw.booking;
+  if (typeof bookingField === "string") {
+    try { nested = JSON.parse(bookingField) ?? {}; } catch { nested = {}; }
+  } else if (bookingField && typeof bookingField === "object") {
+    nested = bookingField;
+  }
+  const payload: Record<string, any> = { ...req.query, ...raw, ...nested };
   const params = new URLSearchParams();
 
   params.set("booking_return", "1");
@@ -17,17 +26,17 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (returnId) params.set("return_id", returnId);
 
   const reference = firstString(
+    payload.booking_id,
     payload.reference,
     payload.booking_reference,
     payload.booking_ref,
     payload.bookingReference,
     payload.ref,
-    payload.id,
-    payload._id,
+    /^\d{1,20}$/.test(String(payload.id ?? "")) ? payload.id : "",
   );
   if (reference) params.set("reference", reference);
 
-  const status = firstString(payload.status, payload.booking_status);
+  const status = firstString(typeof payload.status === "object" ? "" : payload.status, payload.booking_status);
   if (status) params.set("status", status);
 
   const firstName = firstString(payload.first_name, payload.firstname, payload.firstName);
@@ -43,7 +52,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (guests) params.set("guests", guests);
 
   const date = firstString(payload.date, payload.booking_date);
-  if (date) params.set("date", date);
+  if (date) params.set("date", date.slice(0, 10));
 
   const time = firstString(payload.time, payload.booking_time);
   if (time) params.set("time", time);

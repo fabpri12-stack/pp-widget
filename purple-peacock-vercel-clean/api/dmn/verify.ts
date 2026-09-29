@@ -13,21 +13,25 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
   const reference = typeof req.body?.reference === "string" ? req.body.reference.trim() : "";
   const email = typeof req.body?.email === "string" ? req.body.email.trim().toLowerCase() : "";
-  const bookingId = /^(?:DMN-)?(\d{1,20})$/i.exec(reference)?.[1];
-  if (!bookingId || !email || email.length > 254 || !email.includes("@")) {
+  let bookingId = /^(?:DMN-)?(\d{1,20})$/i.exec(reference)?.[1];
+  const date = typeof req.body?.date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(req.body.date) ? req.body.date : "";
+  const time = typeof req.body?.time === "string" && /^\d{2}:\d{2}$/.test(req.body.time) ? req.body.time : "";
+  if (!email || email.length > 254 || !email.includes("@")) {
     return res.status(200).json(unverified);
   }
+  // Without a reference we can only look the booking up by email + date + time.
+  if (!bookingId && (!date || !time)) return res.status(200).json(unverified);
   const appId = process.env.DMN_APP_ID;
   const apiKey = process.env.DMN_API_KEY;
   const venueId = process.env.DMN_VENUE_ID || DEFAULT_VENUE_ID;
   if (!appId || !apiKey) return res.status(200).json(unverified);
 
   const params = new URLSearchParams({
-    booking_id: bookingId,
+    booking_id: bookingId ?? "",
     email,
     venue_id: venueId,
     status: "new,in_progress,complete,rejected,deleted,lost",
-    fields: "booking_id,reference,email,venue_id,status,date,time,num_people,type",
+    fields: "booking_id,reference,email,venue_id,status,date,time,num_people,type,deposits",
     limit: "2",
   });
   async function lookup(query: URLSearchParams) {
@@ -53,6 +57,28 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       (!req.body.guests || Number(booking.num_people) === Number(req.body.guests));
   }
   try {
+    if (!bookingId) {
+      // Fallback when DMN's return carried no reference: find this customer's booking
+      // for the same date/time, created in the last 6 hours. It must be unique.
+      const search = new URLSearchParams({
+        email,
+        venue_id: venueId,
+        date,
+        status: "new,in_progress,complete",
+        fields: "booking_id,reference,email,venue_id,status,date,time,num_people,type,created_date",
+        limit: "10",
+      });
+      const cutoff = Date.now() - 6 * 60 * 60 * 1000;
+      const candidates = (await lookup(search)).filter((b) =>
+        String(b.email ?? "").trim().toLowerCase() === email && b.venue_id === venueId &&
+        String(b.date ?? "").slice(0, 10) === date && b.time === time &&
+        (!req.body.type || b.type?.id === req.body.type) &&
+        (!req.body.guests || Number(b.num_people) === Number(req.body.guests)) &&
+        (!b.created_date || Date.parse(b.created_date) >= cutoff));
+      if (candidates.length !== 1 || !candidates[0].booking_id) return res.status(200).json(unverified);
+      bookingId = String(candidates[0].booking_id);
+      params.set("booking_id", bookingId);
+    }
     const bookings = (await lookup(params)).filter(matches);
     if (bookings.length !== 1) return res.status(200).json(unverified);
     const booking = bookings[0];
@@ -63,7 +89,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const status = statuses[booking.status];
     if (!status) return res.status(200).json(unverified);
     let depositVerified = false;
-    if (status === "confirmed") {
+    if (status === "confirmed" && Array.isArray(booking.deposits)) {
+      // DMN lists each deposit with status "paid" once the card charge has succeeded.
+      depositVerified = booking.deposits.some((d: Record<string, any>) => d?.status === "paid" && Number(d?.amount) > 0 && !d?.refund_ids?.length);
+    }
+    if (status === "confirmed" && !depositVerified) {
       // A confirmed booking or a card authentication is not evidence of a paid deposit.
       // Only DMN's explicit deposit_paid filter establishes that money was received.
       const paidParams = new URLSearchParams(params);
@@ -74,7 +104,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         // Booking confirmation remains valid; payment stays unverified.
       }
     }
-    return res.status(200).json({ verified: true, status, depositVerified });
+    return res.status(200).json({ verified: true, status, depositVerified, reference: bookingId });
   } catch {
     return res.status(200).json(unverified);
   }
