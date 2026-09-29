@@ -32,6 +32,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { loadCalendarData } from "@/lib/calendarData";
+import * as pixel from "@/lib/metaPixel";
 import {
   Dialog,
   DialogContent,
@@ -704,6 +705,14 @@ function EventsCalendar() {
     }
     if (verificationId !== returnVerificationId.current) return;
     const verified = result.verified === true && ["confirmed", "enquiry", "cancelled"].includes(result.status);
+    const verifiedRef = pendingReturn.dmnReference || pendingReturn.reference;
+    if (verified && result.status === "confirmed" && returnedSession) {
+      const basket = pixel.readCheckout(returnedSession.id) ?? pixel.basketParams(returnedSession.event, returnedSession, resolvedMessage.guests, "standard");
+      pixel.setUserData({ email: pendingReturn.email, firstName: pendingReturn.firstName, lastName: pendingReturn.lastName });
+      pixel.trackPurchase(verifiedRef, basket, { deposit_paid: result.depositVerified === true, booking_flow: "payment" });
+    } else if (!verified) {
+      pixel.trackCustom("BookingReturnUnverified", { status: result.status });
+    }
     setBookingReturn({
       ...pendingReturn,
       status: verified ? result.status : "unverified",
@@ -832,6 +841,7 @@ function EventsCalendar() {
     setAvailabilityResult(null);
     setPaymentFlowState("idle");
     setBookingStep("event");
+    pixel.track("ViewContent", { ...pixel.contentParams(session.event, session), value: pixel.unitPrice(session.event, "standard") });
     if (isMobile && openDetail) {
       setShowDetailModal(true);
     } else if (openDetail) {
@@ -864,11 +874,11 @@ function EventsCalendar() {
       bookingStep={bookingStep}
       setBookingStep={setBookingStep}
       onSelectSession={(session) => selectSession(session, false)}
-      onMenu={() => setModalMode("menu")}
-      onHow={() => setModalMode("how")}
-      onFaq={() => setModalMode("faq")}
-      onGuide={() => setModalMode("guide")}
-      onVideo={() => setModalMode("video")}
+      onMenu={() => { pixel.trackCustom("ViewMenu", { content_name: selectedSession?.event.title ?? selectedEvent?.title }); setModalMode("menu"); }}
+      onHow={() => { pixel.trackCustom("ViewInfo", { content_name: selectedSession?.event.title ?? selectedEvent?.title, info_type: "how_to_book" }); setModalMode("how"); }}
+      onFaq={() => { pixel.trackCustom("ViewInfo", { content_name: selectedSession?.event.title ?? selectedEvent?.title, info_type: "faq" }); setModalMode("faq"); }}
+      onGuide={() => { pixel.trackCustom("ViewInfo", { content_name: selectedSession?.event.title ?? selectedEvent?.title, info_type: "welcome_guide" }); setModalMode("guide"); }}
+      onVideo={() => { pixel.trackCustom("ViewVideo", { content_name: selectedSession?.event.title ?? selectedEvent?.title }); setModalMode("video"); }}
     />
   );
 
@@ -930,6 +940,7 @@ function EventsCalendar() {
                 onChange={(value) => {
                   setEventFilter(value);
                   setSelectedSessionId(null);
+                  pixel.trackCustom("FilterEvents", { filter: eventOptions.find((option) => option.id === value)?.title ?? value });
                 }}
               />
             )}
@@ -1280,11 +1291,13 @@ function BookingJourney({
             onSelectSession={onSelectSession}
             onContinue={() => {
               if (event.externalBookingUrl) {
+                pixel.trackCustom("ExternalBookingClick", pixel.contentParams(event, session));
                 openExternalBooking(event.externalBookingUrl);
                 return;
               }
               setAvailabilityState("idle");
               setAvailabilityResult(null);
+              pixel.trackCustom("StartBooking", pixel.contentParams(event, session));
               setBookingStep("availability");
             }}
           />
@@ -1301,7 +1314,10 @@ function BookingJourney({
             availabilityResult={availabilityResult}
             setAvailabilityResult={setAvailabilityResult}
             onBack={() => setBookingStep("event")}
-            onContinue={() => setBookingStep("details")}
+            onContinue={() => {
+              pixel.track("AddToCart", pixel.basketParams(event, session, customer.guests, selectedTicketChoice));
+              setBookingStep("details");
+            }}
           />
         )}
 
@@ -1522,6 +1538,7 @@ function AvailabilityStep({
       const result = (await response.json()) as AvailabilityResult;
       setAvailabilityResult(result);
       setAvailabilityState(isInstantAvailability(result) ? "available" : "enquiry");
+      pixel.trackCustom("CheckAvailability", { ...pixel.contentParams(event, session), num_guests: customer.guests, result: isInstantAvailability(result) ? "available" : "enquiry" });
     } catch (error) {
       setAvailabilityResult({
         available: false,
@@ -1712,6 +1729,14 @@ function BookingDetailsStep({
         onComplete();
         return;
       }
+      const basket = pixel.readCheckout(session.id) ?? pixel.basketParams(event, session, customer.guests, customer.ticketOption);
+      const resultStatus = String(result.status || (flow === "direct" ? "confirmed" : "enquiry"));
+      const pixelRef = String(result.dmnReference || result.reference || "");
+      if (flow === "direct" && ["confirmed", "complete"].includes(resultStatus) && pixelRef) {
+        pixel.trackPurchase(pixelRef, basket, { deposit_paid: false, booking_flow: "direct" });
+      } else {
+        pixel.track("Lead", { ...basket, booking_flow: flow }, `lead_${pixelRef || session.id + "_" + Date.now()}`);
+      }
       setBookingReturn({
         reference: result.reference || (flow === "direct" ? "Booking received" : "Enquiry received"),
         dmnReference: result.dmnReference || result.reference || undefined,
@@ -1748,6 +1773,11 @@ function BookingDetailsStep({
   function continueBooking() {
     if (submitting.current || isBusy) return;
     submitting.current = true;
+    const basket = pixel.basketParams(event, session, customer.guests, customer.ticketOption);
+    pixel.saveCheckout(session.id, basket);
+    if (!isEnquiryFlow) pixel.track("InitiateCheckout", basket, `ic_${session.id}_${Date.now()}`);
+    if (!isEnquiryFlow && !isDirectConfirmFlow) pixel.track("AddPaymentInfo", basket);
+    pixel.setUserData(customer);
     if (isEnquiryFlow || isDirectConfirmFlow) {
       void submitBookingRequest(isEnquiryFlow ? "enquiry" : "direct").finally(() => {
         submitting.current = false;
@@ -1768,7 +1798,7 @@ function BookingDetailsStep({
     } catch {
       // Storage can be restricted in embedded contexts; the explicit return URL still carries details where available.
     }
-    window.location.assign(paymentUrl);
+    window.setTimeout(() => window.location.assign(paymentUrl), 400);
   }
 
   const actionLabel = paymentFlowState === "submitting-enquiry"
